@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: cogno-db-demo
+    env: "static" # the project is a self-contained web app; we'll deploy as a web service via Render dashboard
+    plan: free
+    buildCommand: "dotnet publish -c Release -o out"
+    startCommand: "dotnet out/Neo4jDemo.dll"
+    envVars:
+      - key: COGNODB_URI
+        sync: false
+      - key: COGNODB_USER
+        sync: false
+      - key: COGNODB_PASSWORD
+        sync: false
+
+# Note: You may also create the service via the Render dashboard and set environment variables there.

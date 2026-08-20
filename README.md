@@ -1,12 +1,8 @@
-<<<<<<< HEAD
-# CognoDB-Assignment-2
-CognoDB-Assignment-2
-=======
 # CognoDB Demo — Graph App
 
 [![CI](.github/workflows/ci.yml/badge.svg)](https://github.com/your/repo/actions)
 
-This repository contains a small .NET 9 demo app that connects to a CognoDB (Neo4j-compatible) instance, seeds a tiny sample dataset, and runs example parameterized queries.
+This repository contains a small .NET 9 demo app that connects to a CognoDB (Neo4j-compatible) instance, seeds a sample dataset, and provides a minimal web UI.
 
 Goals (matching the assessment)
 - Thoughtful graph data model with labeled nodes, typed relationships and properties
@@ -64,6 +60,23 @@ Demo
 - Use `demo.ps1` (Windows) or `demo.sh` (Unix) to launch the app and open the web UI. Make sure environment variables are set:
   - `COGNODB_URI`, `COGNODB_USER`, `COGNODB_PASSWORD`
 
+Deploying to Render (recommended quick path)
+
+1. Create a free account at https://dashboard.render.com and connect your GitHub repository.
+2. Create a new Web Service, or add `render.yaml` to the repo and use "Create a new service from repo".
+   - Build Command: `dotnet publish -c Release -o out`
+   - Start Command: `dotnet out/Neo4jDemo.dll`
+3. Set environment variables in the Render service settings:
+   - `COGNODB_URI` (e.g. `bolt+s://db-af2a5606.bravo.databases.cognodb.com`)
+   - `COGNODB_USER` = `cognodb`
+   - `COGNODB_PASSWORD` = `<your-password>`
+4. (Optional) To automate deployments via GitHub Actions:
+   - Add the repository secrets: `RENDER_API_KEY` and `RENDER_SERVICE_ID` in your GitHub repo settings -> Secrets.
+   - Push to `main`; the workflow `.github/workflows/deploy-render.yml` will publish and call the Render deploy API.
+
+Security
+- Do NOT commit passwords. Use Render's environment variables or GitHub secrets.
+
 Submission checklist
 
 - Ensure secrets are not committed. Remove password from `Properties/launchSettings.json` before pushing.
@@ -73,5 +86,3 @@ Next steps I can do for you (select any):
 - Add a minimal web UI (single-page app + minimal API) to explore the graph
 - Expand the seed dataset and add more realistic domain (movies, products, social network)
 - Produce a short screencast script or automated demo script
-
->>>>>>> cc0148e (Initial commit: CognoDB Assignment)
