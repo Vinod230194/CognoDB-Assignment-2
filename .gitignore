@@ -1,0 +1,7 @@
+# Ignore environment files with secrets
+.env
+Properties/launchSettings.json
+*.user
+bin/
+obj/
+.vs/
