@@ -147,4 +147,35 @@ static class Seeder
 
         return new { nodes, relationships = rels };
     }
+
+    public static void QueryFriendsOffline(string name)
+    {
+        // Simple offline implementation matching seeded sample data
+        var offline = new Dictionary<string, string[]>
+        {
+            { "Alice", new[] { "Bob" } },
+            { "Bob", new[] { "Carol" } },
+            { "Carol", new[] { "Dave" } },
+            { "Dave", new[] { "Eve" } },
+            { "Eve", Array.Empty<string>() }
+        };
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Console.WriteLine("No name provided.");
+            return;
+        }
+
+        if (offline.TryGetValue(name, out var friends) && friends.Length > 0)
+        {
+            foreach (var f in friends)
+            {
+                Console.WriteLine($"Friend (offline): {f}");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"No friends found for '{name}' (offline).");
+        }
+    }
 }
