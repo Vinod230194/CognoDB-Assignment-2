@@ -87,80 +87,117 @@ class Program
             }
         }
 
-        // Interactive loop
-        Console.WriteLine();
-        Console.WriteLine("Interactive mode: type a command or 'help' for options. Type 'exit' to quit.");
-
-        bool webRunning = false;
-        Task webTask = Task.CompletedTask;
-
-        while (true)
+        if (Environment.UserInteractive)
         {
-            Console.Write("> ");
-            var input = Console.ReadLine()?.Trim();
-            if (string.IsNullOrEmpty(input))
-                continue;
+            // Interactive loop
+            Console.WriteLine();
+            Console.WriteLine("Interactive mode: type a command or 'help' for options. Type 'exit' to quit.");
 
-            if (input.Equals("exit", StringComparison.OrdinalIgnoreCase))
+            bool webRunning = false;
+            Task webTask = Task.CompletedTask;
+
+            while (true)
             {
-                Console.WriteLine("Exiting...");
-                break;
+                Console.Write("> ");
+                var input = Console.ReadLine()?.Trim();
+                if (string.IsNullOrEmpty(input))
+                    continue;
+
+                if (input.Equals("exit", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Exiting...");
+                    break;
+                }
+
+                if (input.Equals("help", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Commands:");
+                    Console.WriteLine("  friends <name>   - Query friends of a person (parameterized)");
+                    Console.WriteLine("  seed             - Re-run the seeder to refresh sample data (only when connected to DB)");
+                    Console.WriteLine("  web              - Start minimal web UI on the configured port");
+                    Console.WriteLine("  exit             - Quit the program");
+                    continue;
+                }
+
+                var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                var cmd = parts[0].ToLowerInvariant();
+                var arg = parts.Length > 1 ? parts[1] : null;
+
+                switch (cmd)
+                {
+                    case "friends":
+                        if (driver != null)
+                            await Seeder.QueryFriendsByNameAsync(driver, arg);
+                        else
+                            Seeder.QueryFriendsOffline(arg);
+                        break;
+                    case "seed":
+                        if (driver != null)
+                        {
+                            await Seeder.SeedAsync(driver);
+                            Console.WriteLine("Seeding complete.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Cannot seed: no database connection (offline mode).");
+                        }
+                        break;
+                    case "web":
+                        if (!webRunning)
+                        {
+                            webRunning = true;
+                            webTask = WebServer.StartAsync(driver);
+                            Console.WriteLine("Web UI starting on the configured port. Use 'exit' to quit this program.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Web UI already running.");
+                        }
+                        break;
+                    default:
+                        Console.WriteLine($"Unknown command: {cmd}. Type 'help' for options.");
+                        break;
+                }
             }
 
-            if (input.Equals("help", StringComparison.OrdinalIgnoreCase))
+            // Stop web server if running
+            if (webRunning)
             {
-                Console.WriteLine("Commands:");
-                Console.WriteLine("  friends <name>   - Query friends of a person (parameterized)");
-                Console.WriteLine("  seed             - Re-run the seeder to refresh sample data (only when connected to DB)");
-                Console.WriteLine("  web              - Start minimal web UI on the configured port");
-                Console.WriteLine("  exit             - Quit the program");
-                continue;
-            }
-
-            var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            var cmd = parts[0].ToLowerInvariant();
-            var arg = parts.Length > 1 ? parts[1] : null;
-
-            switch (cmd)
-            {
-                case "friends":
-                    if (driver != null)
-                        await Seeder.QueryFriendsByNameAsync(driver, arg);
-                    else
-                        Seeder.QueryFriendsOffline(arg);
-                    break;
-                case "seed":
-                    if (driver != null)
-                    {
-                        await Seeder.SeedAsync(driver);
-                        Console.WriteLine("Seeding complete.");
-                    }
-                    else
-                    {
-                        Console.WriteLine("Cannot seed: no database connection (offline mode).");
-                    }
-                    break;
-                case "web":
-                    if (!webRunning)
-                    {
-                        webRunning = true;
-                        webTask = WebServer.StartAsync(driver);
-                        Console.WriteLine("Web UI starting on the configured port. Use 'exit' to quit this program.");
-                    }
-                    else
-                    {
-                        Console.WriteLine("Web UI already running.");
-                    }
-                    break;
-                default:
-                    Console.WriteLine($"Unknown command: {cmd}. Type 'help' for options.");
-                    break;
+                await WebServer.StopAsync();
+                await webTask;
             }
         }
-
-        // Stop web server if running
-        if (webRunning)
+        else
         {
+            // On servers/containers: start web UI immediately and wait for shutdown
+            Console.WriteLine("Non-interactive host detected — starting web UI.");
+
+            var cts = new System.Threading.CancellationTokenSource();
+            Console.CancelKeyPress += async (s, e) =>
+            {
+                e.Cancel = true;
+                Console.WriteLine("Shutdown requested (Ctrl+C)..");
+                await WebServer.StopAsync();
+                cts.Cancel();
+            };
+
+            AppDomain.CurrentDomain.ProcessExit += async (s, e) =>
+            {
+                Console.WriteLine("Process exit detected, stopping web server...");
+                await WebServer.StopAsync();
+            };
+
+            var webTask = WebServer.StartAsync(driver);
+            try
+            {
+                await Task.Delay(-1, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // expected on shutdown
+            }
+
+            // ensure server stopped
             await WebServer.StopAsync();
             await webTask;
         }
