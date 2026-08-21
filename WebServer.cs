@@ -13,7 +13,7 @@ static class WebServer
 {
     private static IHost? _host;
 
-    public static Task StartAsync(IDriver driver)
+    public static Task StartAsync(IDriver? driver)
     {
         _host = Host.CreateDefaultBuilder()
             .ConfigureWebHostDefaults(webBuilder =>
@@ -31,56 +31,123 @@ static class WebServer
 
                         endpoints.MapGet("/api/people", async ctx =>
                         {
-                            await using var session = driver.AsyncSession();
-                            var res = await session.RunAsync("MATCH (p:Person) RETURN p.name AS name, p.age AS age LIMIT 100");
-                            var list = new List<object>();
-                            await foreach (var r in res)
+                            if (driver != null)
                             {
-                                list.Add(new { name = r["name"].As<string>(), age = r["age"].As<int>() });
+                                await using var session = driver.AsyncSession();
+                                var res = await session.RunAsync("MATCH (p:Person) RETURN p.name AS name, p.age AS age LIMIT 100");
+                                var list = new List<object>();
+                                await foreach (var r in res)
+                                {
+                                    list.Add(new { name = r["name"].As<string>(), age = r["age"].As<int>() });
+                                }
+                                ctx.Response.ContentType = "application/json";
+                                await ctx.Response.WriteAsync(JsonSerializer.Serialize(list));
+                                return;
                             }
+
+                            // offline fallback
+                            var graph = Seeder.GetOfflineGraph();
+                            var nodes = ((IEnumerable<object>)graph.GetType().GetProperty("nodes")!.GetValue(graph)!).Select(n => {
+                                var labels = (IEnumerable<string>)n.GetType().GetProperty("labels")!.GetValue(n)!;
+                                var props = (IDictionary<string, object>)n.GetType().GetProperty("props")!.GetValue(n)!;
+                                return new { labels, props };
+                            })
+                            .Where(x => x.labels.Contains("Person"))
+                            .Select(x => new { name = x.props["name"].ToString(), age = Convert.ToInt32(x.props["age"]) })
+                            .ToList();
+
                             ctx.Response.ContentType = "application/json";
-                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(list));
+                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(nodes));
                         });
 
                         endpoints.MapGet("/api/friends/{name}", async ctx =>
                         {
                             var name = (string?)ctx.Request.RouteValues["name"] ?? string.Empty;
-                            await using var session = driver.AsyncSession();
-                            var cursor = await session.RunAsync(
-                                "MATCH (a:Person {name:$name})-[:KNOWS]->(b:Person) RETURN b.name AS friendName, b.age AS friendAge",
-                                new { name }
-                            );
-                            var list = new List<object>();
-                            await foreach (var r in cursor)
+                            if (driver != null)
                             {
-                                list.Add(new { name = r["friendName"].As<string>(), age = r["friendAge"].As<int>() });
+                                await using var session = driver.AsyncSession();
+                                var cursor = await session.RunAsync(
+                                    "MATCH (a:Person {name:$name})-[:KNOWS]->(b:Person) RETURN b.name AS friendName, b.age AS friendAge",
+                                    new { name }
+                                );
+                                var list = new List<object>();
+                                await foreach (var r in cursor)
+                                {
+                                    list.Add(new { name = r["friendName"].As<string>(), age = r["friendAge"].As<int>() });
+                                }
+                                ctx.Response.ContentType = "application/json";
+                                await ctx.Response.WriteAsync(JsonSerializer.Serialize(list));
+                                return;
                             }
+
+                            // offline fallback: find node id by name, then relationships
+                            var graph = Seeder.GetOfflineGraph();
+                            var nodes = ((IEnumerable<object>)graph.GetType().GetProperty("nodes")!.GetValue(graph)!).ToList();
+                            var rels = ((IEnumerable<object>)graph.GetType().GetProperty("relationships")!.GetValue(graph)!).ToList();
+
+                            long? personId = null;
+                            foreach (var n in nodes)
+                            {
+                                var props = (IDictionary<string, object>)n.GetType().GetProperty("props")!.GetValue(n)!;
+                                if (props.TryGetValue("name", out var pname) && pname.ToString() == name)
+                                {
+                                    personId = (long)n.GetType().GetProperty("id")!.GetValue(n)!;
+                                    break;
+                                }
+                            }
+
+                            var result = new List<object>();
+                            if (personId != null)
+                            {
+                                foreach (var r in rels)
+                                {
+                                    var start = (long)r.GetType().GetProperty("start")!.GetValue(r)!;
+                                    var end = (long)r.GetType().GetProperty("end")!.GetValue(r)!;
+                                    var type = (string)r.GetType().GetProperty("type")!.GetValue(r)!;
+                                    if (type == "KNOWS" && start == personId)
+                                    {
+                                        var friendNode = nodes.First(n => (long)n.GetType().GetProperty("id")!.GetValue(n)! == end);
+                                        var fprops = (IDictionary<string, object>)friendNode.GetType().GetProperty("props")!.GetValue(friendNode)!;
+                                        result.Add(new { name = fprops["name"].ToString(), age = Convert.ToInt32(fprops["age"]) });
+                                    }
+                                }
+                            }
+
                             ctx.Response.ContentType = "application/json";
-                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(list));
+                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(result));
                         });
 
                         endpoints.MapGet("/api/graph", async ctx =>
                         {
-                            var graph = await Seeder.GetGraphAsync(driver);
-                            // Convert node props and relationship props (IReadOnlyDictionary) to plain dictionaries for JSON
-                            var nodes = ((IEnumerable<object>)graph.GetType().GetProperty("nodes")!.GetValue(graph)!).Select(n => {
-                                var id = (long)n.GetType().GetProperty("id")!.GetValue(n)!;
-                                var labels = (IEnumerable<string>)n.GetType().GetProperty("labels")!.GetValue(n)!;
-                                var props = (IReadOnlyDictionary<string, object>)n.GetType().GetProperty("props")!.GetValue(n)!;
-                                return new { id, labels, props = props.ToDictionary(kv => kv.Key, kv => kv.Value) };
-                            });
-                            var rels = ((IEnumerable<object>)graph.GetType().GetProperty("relationships")!.GetValue(graph)!).Select(r => {
-                                var id = (long)r.GetType().GetProperty("id")!.GetValue(r)!;
-                                var type = (string)r.GetType().GetProperty("type")!.GetValue(r)!;
-                                var start = (long)r.GetType().GetProperty("start")!.GetValue(r)!;
-                                var end = (long)r.GetType().GetProperty("end")!.GetValue(r)!;
-                                var props = (IReadOnlyDictionary<string, object>)r.GetType().GetProperty("props")!.GetValue(r)!;
-                                return new { id, type, start, end, props = props.ToDictionary(kv => kv.Key, kv => kv.Value) };
-                            });
+                            if (driver != null)
+                            {
+                                var graph = await Seeder.GetGraphAsync(driver);
+                                // Convert node props and relationship props (IReadOnlyDictionary) to plain dictionaries for JSON
+                                var nodes = ((IEnumerable<object>)graph.GetType().GetProperty("nodes")!.GetValue(graph)!).Select(n => {
+                                    var id = (long)n.GetType().GetProperty("id")!.GetValue(n)!;
+                                    var labels = (IEnumerable<string>)n.GetType().GetProperty("labels")!.GetValue(n)!;
+                                    var props = (IReadOnlyDictionary<string, object>)n.GetType().GetProperty("props")!.GetValue(n)!;
+                                    return new { id, labels, props = props.ToDictionary(kv => kv.Key, kv => kv.Value) };
+                                });
+                                var rels = ((IEnumerable<object>)graph.GetType().GetProperty("relationships")!.GetValue(graph)!).Select(r => {
+                                    var id = (long)r.GetType().GetProperty("id")!.GetValue(r)!;
+                                    var type = (string)r.GetType().GetProperty("type")!.GetValue(r)!;
+                                    var start = (long)r.GetType().GetProperty("start")!.GetValue(r)!;
+                                    var end = (long)r.GetType().GetProperty("end")!.GetValue(r)!;
+                                    var props = (IReadOnlyDictionary<string, object>)r.GetType().GetProperty("props")!.GetValue(r)!;
+                                    return new { id, type, start, end, props = props.ToDictionary(kv => kv.Key, kv => kv.Value) };
+                                });
 
-                            var payload = new { nodes, relationships = rels };
+                                var payload = new { nodes, relationships = rels };
+                                ctx.Response.ContentType = "application/json";
+                                await ctx.Response.WriteAsync(JsonSerializer.Serialize(payload));
+                                return;
+                            }
+
+                            // offline fallback
+                            var offline = Seeder.GetOfflineGraph();
                             ctx.Response.ContentType = "application/json";
-                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(payload));
+                            await ctx.Response.WriteAsync(JsonSerializer.Serialize(offline));
                         });
                     });
                 });
@@ -146,7 +213,7 @@ static class WebServer
     }
     document.getElementById('reload').addEventListener('click', loadPeople);
     document.getElementById('reloadGraph').addEventListener('click', loadGraph);
-    document.getElementById('friends').addEventListener('click', async () =>{
+    document.getElementById('friends').addEventListener('click', async () =>${
       const name = document.getElementById('name').value;
       const res = await fetch('/api/friends/' + encodeURIComponent(name));
       const list = await res.json();
