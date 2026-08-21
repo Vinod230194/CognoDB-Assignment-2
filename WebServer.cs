@@ -84,7 +84,10 @@ static class WebServer
                         });
                     });
                 });
-                webBuilder.UseUrls("http://localhost:5000");
+
+                // Bind to port from environment (Render, Docker, etc.) or fallback to 5000
+                var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+                webBuilder.UseUrls($"http://0.0.0.0:{port}");
             })
             .Build();
 
