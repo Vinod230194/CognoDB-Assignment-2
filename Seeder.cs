@@ -178,4 +178,26 @@ static class Seeder
             Console.WriteLine($"No friends found for '{name}' (offline).");
         }
     }
+
+    public static object GetOfflineGraph()
+    {
+        var nodes = new List<object>
+        {
+            new { id = 1L, labels = new[] { "Person" }, props = new Dictionary<string, object> { { "name", "Alice" }, { "age", 30 } } },
+            new { id = 2L, labels = new[] { "Person" }, props = new Dictionary<string, object> { { "name", "Bob" }, { "age", 28 } } },
+            new { id = 3L, labels = new[] { "Person" }, props = new Dictionary<string, object> { { "name", "Carol" }, { "age", 35 } } },
+            new { id = 4L, labels = new[] { "Person" }, props = new Dictionary<string, object> { { "name", "Dave" }, { "age", 40 } } },
+            new { id = 5L, labels = new[] { "Person" }, props = new Dictionary<string, object> { { "name", "Eve" }, { "age", 25 } } }
+        };
+
+        var rels = new List<object>
+        {
+            new { id = 101L, type = "KNOWS", start = 1L, end = 2L, props = new Dictionary<string, object> { { "since", 2020 } } },
+            new { id = 102L, type = "KNOWS", start = 2L, end = 3L, props = new Dictionary<string, object> { { "since", 2018 } } },
+            new { id = 103L, type = "KNOWS", start = 3L, end = 4L, props = new Dictionary<string, object> { { "since", 2019 } } },
+            new { id = 104L, type = "KNOWS", start = 4L, end = 5L, props = new Dictionary<string, object> { { "since", 2021 } } }
+        };
+
+        return new { nodes, relationships = rels };
+    }
 }
